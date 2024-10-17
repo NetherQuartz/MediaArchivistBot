@@ -1,0 +1,11 @@
+SQLAlchemy==2.*
+numpy==2.*
+sqlmodel
+pydantic==2.*
+psycopg2-binary
+pgvector
+opencv-python
+pyTelegramBotAPI
+aiohttp
+mistralai
+requests

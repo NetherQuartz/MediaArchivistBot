@@ -1,0 +1,42 @@
+services:
+  bot:
+    build: .
+    image: mediaarchivist:latest
+    container_name: mediaarchivist-tgbot
+    restart: always
+    environment:
+      - TG_TOKEN
+      - LOGGING_LEVEL
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - MISTRAL_API_KEY
+    mem_limit: 200m
+    volumes:
+    - type: tmpfs
+      target: /ramdisk
+      tmpfs:
+        size: 200m
+    depends_on:
+      pgvector-database:
+        condition: service_healthy
+
+  pgvector-database:
+    image: pgvector/pgvector:0.7.4-pg17
+    container_name: mediaarchivist-pgvector
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - PGDATA=/dbdata
+    ports:
+      - 5432:5432
+    volumes:
+      - ${PWD}/.dbdata:/dbdata:rw
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
