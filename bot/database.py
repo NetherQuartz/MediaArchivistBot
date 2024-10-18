@@ -4,7 +4,6 @@ import os
 from enum import Enum
 from datetime import datetime
 from typing import Iterator
-from contextlib import contextmanager
 
 from sqlmodel import SQLModel, Field, Column, Session, create_engine, text
 from sqlalchemy.types import BigInteger, Text
@@ -61,20 +60,19 @@ class File(SQLModel, table=True):
         arbitrary_types_allowed = True
 
 
-@contextmanager
-def get_db() -> Iterator[Session]:
-    with Session(engine) as session:
-        yield session
-
-
 database = os.getenv("POSTGRES_DB")
 user = os.getenv("POSTGRES_USER")
 password = os.getenv("POSTGRES_PASSWORD")
 
 engine = create_engine(f"postgresql+psycopg2://{user}:{password}@pgvector-database:5432/{database}")
 
-with get_db() as session:
+with Session(engine) as session:
     session.exec(text("CREATE EXTENSION IF NOT EXISTS vector"))
     session.commit()
 
 SQLModel.metadata.create_all(engine)
+
+
+def get_db() -> Iterator[Session]:
+    with Session(engine) as session:
+        yield session

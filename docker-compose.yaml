@@ -36,7 +36,7 @@ services:
       - ${PWD}/.dbdata:/dbdata:rw
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}" ]
-      interval: 5s
+      interval: 2s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 1s

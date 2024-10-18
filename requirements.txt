@@ -9,3 +9,4 @@ pyTelegramBotAPI
 aiohttp
 mistralai
 requests
+fast-depends
