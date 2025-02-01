@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from mistralai import Mistral, SDKError
+from ollama import AsyncClient
 
 
 TIMEOUT = 2
@@ -41,14 +42,15 @@ def encode_image(image_file: str | bytes) -> str:
 api_key = os.environ["MISTRAL_API_KEY"]
 model = "pixtral-12b-2409"
 
-client = Mistral(api_key=api_key)
+description_client = Mistral(api_key=api_key)
+embedding_client = AsyncClient(host=os.getenv("OLLAMA_HOST"))
 
 SYSTEM_PROMPT = "Ты родился и вырос в России, твой родной язык русский. Ты знаешь все языки, но отвечаешь обычно по-русски. Когда требуется разглядеть текст на изображении или видео, ты хорошо вглядываешься и несколько раз перепроверяешь, не ошибся ли. Это всё из-за твоей прирождённой склонности к перфекционизму. Ты разбираешься в русской и международной интернет-культуре. Знаешь все мемы и над чем смеются в интернете, понимаешь сленг и всевозможные сокращения. Когда тебя просят описать отправленное изображение или видео, ты отмечаешь все важные детали, делающие его уникальным, но пишешь в меру коротко, по делу и не стесняешься мата, чёрного юмора и прочих тем, если это требуется для описания. Кроме того, ты всегда отвечаешь по факту содержания, без лишних додумываний и уточняющих вопросов. Твои ответы напрямую и без проверки подаются в автоматизированную базу данных, поэтому точность крайне важна."
 
 
 @retry_on_error
 def describe_photo(image_file: bytes) -> str:
-    chat_response = client.chat.complete(
+    chat_response = description_client.chat.complete(
         model=model,
         messages = [
             {
@@ -110,19 +112,17 @@ def describe_video(path: str, root: str = "/ramdisk") -> str:
             "image_url": f"data:image/jpeg;base64,{b64}"
         })
 
-    chat_response = client.chat.complete(
+    chat_response = description_client.chat.complete(
         model=model,
         messages=messages
     )
     return chat_response.choices[0].message.content
 
 
-@retry_on_error
-def get_embedding(texts: list[str]) -> list[list[float]]:
-    embeddings_batch_response = client.embeddings.create(
-        model="mistral-embed",
-        inputs=texts,
+async def get_embedding(texts: list[str]) -> list[list[float]]:
+    response = await embedding_client.embed(
+        model="snowflake-arctic-embed2",
+        input=texts,
     )
 
-    data = embeddings_batch_response.data
-    return [e.embedding for e in data]
+    return response.embeddings

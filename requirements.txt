@@ -8,5 +8,6 @@ opencv-python
 pyTelegramBotAPI
 aiohttp
 mistralai
+ollama
 requests
 fast-depends

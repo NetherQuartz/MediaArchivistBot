@@ -8,6 +8,7 @@ from telebot.async_telebot import AsyncTeleBot
 from telebot import types, logger
 from sqlmodel import select, Session
 from fast_depends import Depends, inject
+from sqlalchemy.exc import IntegrityError
 
 from .database import get_db, File, Chat, Message, User, MediaType
 from .llm_api import describe_photo, describe_video, get_embedding
@@ -68,8 +69,12 @@ async def index_media(message: types.Message, session: Session = Depends(get_db)
             files.append(file)
 
     for file in files:
-        session.add(file)
-    session.commit()
+        try:
+            session.add(file)
+            session.commit()
+        except IntegrityError as e:
+            logger.error(e)
+            session.rollback()
 
     descriptions = []
     for file in files:
@@ -84,7 +89,7 @@ async def index_media(message: types.Message, session: Session = Depends(get_db)
                     file.description = describe_video(temp.name)
         descriptions.append(file.description)
 
-    for embedding in get_embedding(descriptions):
+    for embedding in await get_embedding(descriptions):
         file.embedding = embedding
     session.commit()
 
@@ -98,7 +103,7 @@ async def index_media(message: types.Message, session: Session = Depends(get_db)
 @bot.message_handler(chat_types=["private"])
 @inject
 async def search(message: types.Message, session: Session = Depends(get_db)) -> None:
-    query_embedding = get_embedding([message.text])[0]
+    query_embedding = (await get_embedding([message.text]))[0]
     results = session.exec(select(File).order_by(File.embedding.l2_distance(query_embedding)).limit(5))
     for result in results.fetchall():
         msg: Message = session.get(Message, result.message_uuid)

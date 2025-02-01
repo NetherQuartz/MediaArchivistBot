@@ -9,6 +9,6 @@ ADD requirements.txt .
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6
 RUN pip install --no-cache-dir -r requirements.txt
 
-ADD bot bot
+ADD archivistbot archivistbot
 
-ENTRYPOINT [ "python", "-m", "bot" ]
+ENTRYPOINT [ "python", "-m", "archivistbot" ]
