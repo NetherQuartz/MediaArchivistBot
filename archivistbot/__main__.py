@@ -6,11 +6,12 @@ import tempfile
 
 from telebot.async_telebot import AsyncTeleBot
 from telebot import types, logger
-from sqlmodel import select, Session
-from fast_depends import Depends, inject
+
+from sqlmodel import select
+from fast_depends import inject
 from sqlalchemy.exc import IntegrityError
 
-from .database import get_db, File, Chat, Message, User, MediaType
+from .database import File, Chat, Message, User, MediaType, SessionType
 from .llm_api import describe_photo, describe_video, get_embedding
 
 logger.setLevel(logging.DEBUG if os.getenv("LOGGING_LEVEL") == "DEBUG" else logging.INFO)
@@ -30,7 +31,7 @@ async def start(message: types.Message) -> None:
 
 @bot.message_handler(chat_types=["group", "supergroup", "channel"], content_types=["photo", "video", "animation", "document"])
 @inject
-async def index_media(message: types.Message, session: Session = Depends(get_db)) -> None:
+async def index_media(message: types.Message, session: SessionType) -> None:
     logger.info(f"Got media: {message.chat.type=} {message.chat.id=} {message.id=} {message.content_type=}")
 
     chat = session.get(Chat, message.chat.id)
@@ -102,17 +103,16 @@ async def index_media(message: types.Message, session: Session = Depends(get_db)
 
 @bot.message_handler(chat_types=["private"])
 @inject
-async def search(message: types.Message, session: Session = Depends(get_db)) -> None:
+async def search(message: types.Message, session: SessionType) -> None:
     query_embedding = (await get_embedding([message.text]))[0]
-    results = session.exec(select(File).order_by(File.embedding.l2_distance(query_embedding)).limit(5))
-    for result in results.fetchall():
-        msg: Message = session.get(Message, result.message_uuid)
+    results = session.exec(select(Message).join(File).order_by(File.embedding.l2_distance(query_embedding)).limit(3))
+    for msg in results.unique():
         await bot.forward_message(message.chat.id, msg.chat_id, msg.message_id)
 
 
 @bot.my_chat_member_handler()
 @inject
-async def chat_membership(upd: types.ChatMemberUpdated, session: Session = Depends(get_db)) -> None:
+async def chat_membership(upd: types.ChatMemberUpdated, session: SessionType) -> None:
     chat = session.get(Chat, upd.chat.id)
     if not chat:
         chat = session.add(Chat(chat_id=upd.chat.id, type=upd.chat.type))

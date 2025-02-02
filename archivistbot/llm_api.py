@@ -122,7 +122,7 @@ def describe_video(path: str, root: str = "/ramdisk") -> str:
 async def get_embedding(texts: list[str]) -> list[list[float]]:
     response = await embedding_client.embed(
         model="snowflake-arctic-embed2",
-        input=texts,
+        input=texts
     )
 
     return response.embeddings
