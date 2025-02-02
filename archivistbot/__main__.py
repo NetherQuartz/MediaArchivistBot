@@ -9,7 +9,6 @@ from telebot import types, logger
 
 from sqlmodel import select
 from fast_depends import inject
-from sqlalchemy.exc import IntegrityError
 
 from .database import File, Chat, Message, User, MediaType, SessionType
 from .llm_api import describe_photo, describe_video, get_embedding
@@ -29,7 +28,7 @@ async def start(message: types.Message) -> None:
     await bot.send_message(message.chat.id, text=welcome_text, parse_mode="markdown")
 
 
-@bot.message_handler(chat_types=["group", "supergroup", "channel"], content_types=["photo", "video", "animation", "document"])
+@bot.message_handler(chat_types=["group", "supergroup", "private"], content_types=["photo", "video", "animation", "document"])
 @inject
 async def index_media(message: types.Message, session: SessionType) -> None:
     logger.info(f"Got media: {message.chat.type=} {message.chat.id=} {message.id=} {message.content_type=}")
@@ -42,22 +41,24 @@ async def index_media(message: types.Message, session: SessionType) -> None:
     session.add(msg)
     session.commit()
 
-    files: list[File] = []
+    files: dict[str, File] = {}
 
     if message.photo:
+        max_photo = message.photo[0]
         for photo in message.photo:
             logger.info(f"{photo.file_size=} {photo.file_id=}")
-            file = session.get(File, photo.file_id)
-            if file is None and photo.file_size < MAX_FILE_SIZE:
-                file = File(file_id=photo.file_id, media_type=MediaType.image, message_uuid=msg.message_uuid)
-                files.append(file)
+            if MAX_FILE_SIZE > photo.file_size > max_photo.file_size:
+                max_photo = photo
+
+        file = session.get(File, photo.file_id)
+        if file is None and photo.file_size < MAX_FILE_SIZE:
+            files[photo.file_id] = File(file_id=photo.file_id, media_type=MediaType.image, message_uuid=msg.message_uuid)
 
     if ((video := message.video) or (video := message.animation)) and video.file_size < MAX_FILE_SIZE:
         logger.info(f"{video.file_size=} {video.file_id=} {video.file_name=}")
         file = session.get(File, video.file_id)
         if file is None and video.file_size < MAX_FILE_SIZE:
-            file = File(file_id=video.file_id, media_type=MediaType.video, message_uuid=msg.message_uuid)
-            files.append(file)
+            files[video.file_id] = File(file_id=video.file_id, media_type=MediaType.video, message_uuid=msg.message_uuid)
 
     if document := message.document:
         logger.info(f"{document.file_size=} {document.file_id=} {document.file_name=} {document.mime_type=}")
@@ -65,20 +66,20 @@ async def index_media(message: types.Message, session: SessionType) -> None:
         if file is None and document.file_size < MAX_FILE_SIZE:
             if "video" in document.mime_type:
                 file = File(file_id=document.file_id, media_type=MediaType.video, message_uuid=msg.message_uuid)
-            if "image" in document.mime_type:
+            elif "image" in document.mime_type:
                 file = File(file_id=document.file_id, media_type=MediaType.image, message_uuid=msg.message_uuid)
-            files.append(file)
+            files[document.file_id] = file
 
-    for file in files:
-        try:
-            session.add(file)
-            session.commit()
-        except IntegrityError as e:
-            logger.error(e)
-            session.rollback()
+    if not files:
+        logger.info("Finished with no new media")
+        return
+
+    for _, file in files.items():
+        session.add(file)
+    session.commit()
 
     descriptions = []
-    for file in files:
+    for _, file in files.items():
         file_url = await bot.get_file_url(file.file_id)
         file_data = requests.get(file_url).content
         match file.media_type:
@@ -94,11 +95,8 @@ async def index_media(message: types.Message, session: SessionType) -> None:
         file.embedding = embedding
     session.commit()
 
-    if files:
-        await bot.set_message_reaction(message.chat.id, message.id, [types.ReactionTypeEmoji("✍️")])
-        logger.info(f"Finished media processing: added {len(files)} files")
-    else:
-        logger.info("Finished with no new media")
+    await bot.set_message_reaction(message.chat.id, message.id, [types.ReactionTypeEmoji("✍️")])
+    logger.info(f"Finished media processing: added {len(files)} files")
 
 
 @bot.message_handler(chat_types=["private"])
