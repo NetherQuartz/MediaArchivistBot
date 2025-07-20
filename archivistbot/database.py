@@ -26,6 +26,7 @@ class ChatType(Enum):
 
 class Chat(SQLModel, table=True):
     __tablename__: str = "chats"
+    __table_args__ = {"schema": "mediaarchivist"}
 
     chat_id: int = Field(primary_key=True, sa_type=BigInteger)
     type: ChatType
@@ -34,17 +35,19 @@ class Chat(SQLModel, table=True):
 
 class User(SQLModel, table=True):
     __tablename__: str = "users"
+    __table_args__ = {"schema": "mediaarchivist"}
 
     user_id: int = Field(primary_key=True, default=None, sa_type=BigInteger)
-    chat_id: int = Field(foreign_key="chats.chat_id", sa_type=BigInteger)
+    chat_id: int = Field(foreign_key="mediaarchivist.chats.chat_id", sa_type=BigInteger)
     join_date: datetime = Field(default_factory=datetime.now)
 
 
 class Message(SQLModel, table=True):
     __tablename__: str = "messages"
+    __table_args__ = {"schema": "mediaarchivist"}
 
     message_uuid: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
-    chat_id: int = Field(foreign_key="chats.chat_id", sa_type=BigInteger)
+    chat_id: int = Field(foreign_key="mediaarchivist.chats.chat_id", sa_type=BigInteger)
     sender_id: int = Field(sa_type=BigInteger)
     message_id: int = Field(sa_type=BigInteger)
     add_date: datetime = Field(default_factory=datetime.now)
@@ -52,9 +55,10 @@ class Message(SQLModel, table=True):
 
 class File(SQLModel, table=True):
     __tablename__: str = "files"
+    __table_args__ = {"schema": "mediaarchivist"}
 
     file_id: str = Field(primary_key=True)
-    message_uuid: uuid.UUID = Field(foreign_key="messages.message_uuid")
+    message_uuid: uuid.UUID = Field(foreign_key="mediaarchivist.messages.message_uuid")
     media_type: MediaType
     description: str | None = Field(sa_type=Text)
     embedding: Vector | None = Field(sa_column=Column(Vector(1024), nullable=True))
@@ -76,6 +80,7 @@ engine = create_engine(
 
 with Session(engine) as session:
     session.exec(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    session.exec(text("CREATE SCHEMA IF NOT EXISTS mediaarchivist"))
     session.commit()
 
 SQLModel.metadata.create_all(engine)
