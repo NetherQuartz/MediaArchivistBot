@@ -103,7 +103,12 @@ async def index_media(message: types.Message, session: SessionType) -> None:
 @inject
 async def search(message: types.Message, session: SessionType) -> None:
     query_embedding = (await get_embedding([message.text]))[0]
-    results = session.exec(select(Message).join(File).order_by(File.embedding.l2_distance(query_embedding)).limit(3))
+    results = session.exec(
+        select(Message).join(File)
+            .where(~File.embedding.is_(None))
+            .order_by(File.embedding.l2_distance(query_embedding))
+            .limit(3)
+    )
     for msg in results.unique():
         await bot.forward_message(message.chat.id, msg.chat_id, msg.message_id)
 
