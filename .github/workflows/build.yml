@@ -46,8 +46,12 @@ jobs:
             pip check
 
       - name: Validate shell scripts and Compose file
+        env:
+          POSTGRES_PASSWORD: ci-placeholder
         run: |
           sh -n scripts/backup.sh scripts/restore.sh
+          # Compose references env_file: .env; provide a non-secret stub for CI.
+          cp .env.template .env
           docker compose config --quiet
 
   publish:
