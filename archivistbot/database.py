@@ -6,6 +6,8 @@ from sqlmodel import Session, create_engine
 
 from .config import get_settings
 
+_engine: Engine | None = None
+
 
 def build_engine() -> Engine:
     settings = get_settings()
@@ -16,12 +18,16 @@ def build_engine() -> Engine:
     )
 
 
-engine = build_engine()
+def get_engine() -> Engine:
+    global _engine
+    if _engine is None:
+        _engine = build_engine()
+    return _engine
 
 
 @contextmanager
 def session_scope() -> Iterator[Session]:
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         try:
             yield session
             session.commit()
