@@ -1,94 +1,30 @@
-import uuid
-import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 
-from enum import Enum
-from datetime import datetime
-from typing import Iterator, Annotated
-from urllib.parse import quote_plus
+from sqlalchemy import Engine
+from sqlmodel import Session, create_engine
 
-from sqlmodel import SQLModel, Field, Column, Session, create_engine, text
-from sqlalchemy.types import BigInteger, Text
-from pgvector.sqlalchemy import Vector
-from fast_depends import Depends
+from .config import get_settings
 
 
-class MediaType(Enum):
-    image = "image"
-    video = "video"
-
-
-class ChatType(Enum):
-    private = "private"
-    group = "group"
-    supergroup = "supergroup"
-    channel = "channel"
-
-
-class Chat(SQLModel, table=True):
-    __tablename__: str = "chats"
-    __table_args__ = {"schema": "mediaarchivist"}
-
-    chat_id: int = Field(primary_key=True, sa_type=BigInteger)
-    type: ChatType
-    join_date: datetime = Field(default_factory=datetime.now)
-
-
-class User(SQLModel, table=True):
-    __tablename__: str = "users"
-    __table_args__ = {"schema": "mediaarchivist"}
-
-    user_id: int = Field(primary_key=True, default=None, sa_type=BigInteger)
-    chat_id: int = Field(foreign_key="mediaarchivist.chats.chat_id", sa_type=BigInteger)
-    join_date: datetime = Field(default_factory=datetime.now)
-
-
-class Message(SQLModel, table=True):
-    __tablename__: str = "messages"
-    __table_args__ = {"schema": "mediaarchivist"}
-
-    message_uuid: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
-    chat_id: int = Field(foreign_key="mediaarchivist.chats.chat_id", sa_type=BigInteger)
-    sender_id: int = Field(sa_type=BigInteger)
-    message_id: int = Field(sa_type=BigInteger)
-    add_date: datetime = Field(default_factory=datetime.now)
-
-
-class File(SQLModel, table=True):
-    __tablename__: str = "files"
-    __table_args__ = {"schema": "mediaarchivist"}
-
-    file_id: str = Field(primary_key=True)
-    message_uuid: uuid.UUID = Field(foreign_key="mediaarchivist.messages.message_uuid")
-    media_type: MediaType
-    description: str | None = Field(sa_type=Text)
-    embedding: Vector | None = Field(sa_column=Column(Vector(1024), nullable=True))
-    add_date: datetime = Field(default_factory=datetime.now)
-
-    class Config:
-        arbitrary_types_allowed = True
-
-
-engine = create_engine(
-    "postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}".format(
-        user=os.getenv("POSTGRES_USER"),
-        password=quote_plus(os.environ["POSTGRES_PASSWORD"]),
-        host=os.getenv("POSTGRES_HOST"),
-        port=os.getenv("POSTGRES_PORT", 5432),
-        database=os.getenv("POSTGRES_DB")
+def build_engine() -> Engine:
+    settings = get_settings()
+    return create_engine(
+        settings.sqlalchemy_url,
+        pool_pre_ping=True,
+        pool_recycle=300,
     )
-)
-
-with Session(engine) as session:
-    session.exec(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    session.exec(text("CREATE SCHEMA IF NOT EXISTS mediaarchivist"))
-    session.commit()
-
-SQLModel.metadata.create_all(engine)
 
 
-def get_db() -> Iterator[Session]:
+engine = build_engine()
+
+
+@contextmanager
+def session_scope() -> Iterator[Session]:
     with Session(engine) as session:
-        yield session
-
-
-SessionType = Annotated[Session, Depends(get_db)]
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise

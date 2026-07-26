@@ -1,128 +1,224 @@
-import os
+import asyncio
 import base64
-import os
-import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 
-import cv2
-import numpy as np
+from ollama import AsyncClient as AsyncOllama
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    RateLimitError,
+)
+from pydantic import BaseModel, Field
 
-from mistralai import Mistral, SDKError
-from ollama import AsyncClient
+from .config import Settings, get_settings
 
+PROMPT_VERSION = "search-facets-v4"
 
-TIMEOUT = 2
+SYSTEM_PROMPT = """
+You create an accurate search index for a collection of memes, images, and
+short videos. Write descriptions in English, while preserving the original
+spelling of visible text, names, slang, and quotations.
 
-def retry_on_error(func):
-    def wrapper(*args, **kwargs):
-        c = 0
-        while True:
-            try:
-                return func(*args, **kwargs)
-            except SDKError:
-                time.sleep(TIMEOUT)
-            except Exception:
-                c += 1
-                if c > 5:
-                    raise
-                time.sleep(TIMEOUT)
-    return wrapper
+This is neutral archival classification, not endorsement. Do not refuse to
+describe media solely because it contains profanity, insults, slurs, dark
+humor, political propaganda, extremist symbols, or religious or sexual jokes.
+Record those elements accurately and without euphemisms when they are actually
+present or necessary for retrieval. Do not add moral commentary or invent
+offensive wording that is absent from the source.
 
-
-def encode_image(image_file: str | bytes) -> str:
-    """Encode the image to base64."""
-
-    if isinstance(image_file, str):
-        with open(image_file, "rb") as f:
-            img_bytes = f.read()
-    else:
-        img_bytes = image_file
-    return base64.b64encode(img_bytes).decode("utf-8")
-
-
-api_key = os.environ["MISTRAL_API_KEY"]
-model = "pixtral-12b-2409"
-
-description_client = Mistral(api_key=api_key)
-embedding_client = AsyncClient(host=os.getenv("OLLAMA_HOST"))
-
-SYSTEM_PROMPT = "Ты родился и вырос в России, твой родной язык русский. Ты знаешь все языки, но отвечаешь обычно по-русски. Когда требуется разглядеть текст на изображении или видео, ты хорошо вглядываешься и несколько раз перепроверяешь, не ошибся ли. Это всё из-за твоей прирождённой склонности к перфекционизму. Ты разбираешься в русской и международной интернет-культуре. Знаешь все мемы и над чем смеются в интернете, понимаешь сленг и всевозможные сокращения. Когда тебя просят описать отправленное изображение или видео, ты отмечаешь все важные детали, делающие его уникальным, но пишешь в меру коротко, по делу и не стесняешься мата, чёрного юмора и прочих тем, если это требуется для описания. Кроме того, ты всегда отвечаешь по факту содержания, без лишних додумываний и уточняющих вопросов. Твои ответы напрямую и без проверки подаются в автоматизированную базу данных, поэтому точность крайне важна."
+Describe only what can be observed. Do not infer a real person's ethnicity,
+religion, sexual orientation, medical condition, or political beliefs from
+appearance. Name public figures, fictional characters, and known meme
+templates only when recognizable; put doubts in uncertainties. Explain the
+joke, irony, and context, but keep them separate from factual observations.
+In aliases_and_search_phrases, include common search terms and synonyms in both
+English and Russian, even when the source media uses only one of those
+languages. Keep visible_text verbatim in its original language.
+Do not use Markdown and follow the JSON schema exactly.
+""".strip()
 
 
-@retry_on_error
-def describe_photo(image_file: bytes) -> str:
-    chat_response = description_client.chat.complete(
-        model=model,
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Пожалуйста, опиши подробно это изображение. Отметь важные детали, по которым эту картинку можно будет найти среди других. Сосредоточься на фактическом содержании, не нужно ничего додумывать. Перепроверь несколько раз, пока точно не будешь уверен в своём ответе, прежде чем отвечать. Отвечай по-русски, другие языки используй только если на изображении есть текст на них. Не задавай лишних вопросов, отвечай сразу."
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": f"data:image/jpeg;base64,{encode_image(image_file)}"
-                    }
-                ]
-            }
+class MediaDescription(BaseModel):
+    summary: str
+    visible_text: list[str] = Field(default_factory=list)
+    people_and_characters: list[str] = Field(default_factory=list)
+    objects: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    setting: list[str] = Field(default_factory=list)
+    emotions: list[str] = Field(default_factory=list)
+    meme_context: list[str] = Field(default_factory=list)
+    controversial_context: list[str] = Field(default_factory=list)
+    aliases_and_search_phrases: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Likely retrieval phrases and synonyms in both English and Russian."
+        ),
+    )
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ImageInput:
+    data: bytes
+    mime_type: str = "image/jpeg"
+
+
+class VisionService:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.client = AsyncOpenAI(
+            api_key=self.settings.vision_api_key.get_secret_value(),
+            base_url=self.settings.vision_base_url,
+            timeout=self.settings.vision_timeout_seconds,
+            max_retries=0,
+        )
+
+    async def describe(
+        self,
+        images: Sequence[ImageInput],
+        *,
+        media_type: str,
+        caption: str | None = None,
+        transcript: str | None = None,
+    ) -> MediaDescription:
+        if not images:
+            raise ValueError("At least one image is required for vision analysis")
+
+        context = [
+            f"Media type: {media_type}.",
+            (
+                "Extract attributes that let a user retrieve this media with a "
+                "short, conversational query in any language."
+            ),
         ]
-    )
-    return chat_response.choices[0].message.content
+        if caption:
+            context.append(f"Telegram caption: {caption}")
+        if transcript:
+            context.append(f"Automatic audio transcript: {transcript}")
 
+        content: list[dict[str, object]] = [
+            {"type": "text", "text": "\n".join(context)}
+        ]
+        content.extend(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": (
+                        f"data:{image.mime_type};base64,"
+                        f"{base64.b64encode(image.data).decode('ascii')}"
+                    )
+                },
+            }
+            for image in images
+        )
 
-@retry_on_error
-def describe_video(path: str, root: str = "/ramdisk") -> str:
-
-    cap = cv2.VideoCapture(os.path.join(root, path))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_indices = np.linspace(0, total_frames - 1, 8, dtype=int)
-
-    images = []
-    for i in frame_indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        ret, frame = cap.read()
-        if not ret:
-            continue
-        _, buffer = cv2.imencode(".jpg", frame)
-        images.append(encode_image(buffer))
-
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        },
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Пожалуйста, опиши подробно видео, кадры из которого ты видишь. Отметь важные детали и действия, по которым это видео можно будет найти среди других. Сосредоточься на фактическом содержании, не нужно ничего додумывать. Перепроверь несколько раз, пока точно не будешь уверен в своём ответе, прежде чем отвечать. Не нужно описывать кадры по отдельности, смотри на видео целиком. Отвечай по-русски, другие языки используй только если на видео есть текст на них. Не задавай лишних вопросов, отвечай сразу."
-                }
-            ]
+        schema = MediaDescription.model_json_schema()
+        schema["required"] = list(schema["properties"])
+        schema["additionalProperties"] = False
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "media_description",
+                "strict": True,
+                "schema": schema,
+            },
         }
+
+        for attempt in range(self.settings.vision_max_retries):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.settings.vision_model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": content},
+                    ],
+                    response_format=response_format,
+                    temperature=0.1,
+                    extra_body={"provider": {"require_parameters": True}},
+                )
+                output = response.choices[0].message.content
+                if not output:
+                    raise ValueError("Vision provider returned an empty response")
+                return MediaDescription.model_validate_json(output)
+            except (APIConnectionError, APITimeoutError, RateLimitError):
+                if attempt + 1 >= self.settings.vision_max_retries:
+                    raise
+                await asyncio.sleep(2**attempt)
+            except APIStatusError as error:
+                if error.status_code < 500 or attempt + 1 >= self.settings.vision_max_retries:
+                    raise
+                await asyncio.sleep(2**attempt)
+
+        raise RuntimeError("Vision request retry loop finished unexpectedly")
+
+
+class EmbeddingService:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.client = AsyncOllama(host=self.settings.ollama_host)
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return await self._embed(list(texts))
+
+    async def embed_query(self, query: str) -> list[float]:
+        instruction = (
+            "Instruct: Given a user's natural-language request, retrieve the most "
+            "relevant meme, image, or video description.\n"
+            f"Query: {query.strip()}"
+        )
+        return (await self._embed([instruction]))[0]
+
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts or any(not isinstance(text, str) or not text.strip() for text in texts):
+            raise ValueError("Embedding inputs must be non-empty strings")
+        response = await self.client.embed(
+            model=self.settings.embedding_model,
+            input=texts,
+            truncate=True,
+            dimensions=self.settings.embedding_dimensions,
+        )
+        embeddings = [list(vector) for vector in response.embeddings]
+        for vector in embeddings:
+            if len(vector) != self.settings.embedding_dimensions:
+                raise ValueError(
+                    "Unexpected embedding size: "
+                    f"{len(vector)} != {self.settings.embedding_dimensions}"
+                )
+        return embeddings
+
+
+def build_search_text(
+    description: MediaDescription,
+    *,
+    caption: str | None = None,
+    transcript: str | None = None,
+) -> str:
+    sections: list[tuple[str, Sequence[str] | str]] = [
+        ("Description", description.summary),
+        ("Visible text", description.visible_text),
+        ("People and characters", description.people_and_characters),
+        ("Objects", description.objects),
+        ("Actions", description.actions),
+        ("Setting", description.setting),
+        ("Emotions", description.emotions),
+        ("Meme context", description.meme_context),
+        ("Controversial context", description.controversial_context),
+        ("Search phrases", description.aliases_and_search_phrases),
     ]
-    for b64 in images:
-        messages[-1]["content"].append({
-            "type": "image_url",
-            "image_url": f"data:image/jpeg;base64,{b64}"
-        })
+    if caption:
+        sections.append(("Caption", caption))
+    if transcript:
+        sections.append(("Speech", transcript))
 
-    chat_response = description_client.chat.complete(
-        model=model,
-        messages=messages
-    )
-    return chat_response.choices[0].message.content
-
-
-async def get_embedding(texts: list[str]) -> list[list[float]]:
-    response = await embedding_client.embed(
-        model="snowflake-arctic-embed2",
-        input=texts
-    )
-
-    return response.embeddings
+    lines: list[str] = []
+    for label, value in sections:
+        if isinstance(value, str):
+            cleaned = value.strip()
+        else:
+            cleaned = "; ".join(item.strip() for item in value if item.strip())
+        if cleaned:
+            lines.append(f"{label}: {cleaned}")
+    return "\n".join(lines)

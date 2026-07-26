@@ -78,6 +78,16 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# macOS
+.DS_Store
+
+# Local test assets
+/img/
+/eval/
+
+# Local database backups
+/backups/
+
 # IPython
 profile_default/
 ipython_config.py

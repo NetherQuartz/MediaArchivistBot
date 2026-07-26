@@ -1,1 +1,9 @@
 .dbdata
+.git
+.env
+.DS_Store
+__pycache__
+*.py[cod]
+*.ipynb
+.pytest_cache
+img

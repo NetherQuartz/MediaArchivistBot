@@ -1,21 +1,87 @@
 services:
-  mediaarchivistbot:
-    build: .
-    image: ghcr.io/netherquartz/mediaarchivistbot:latest
-    container_name: mediaarchivistbot
+  db:
+    image: pgvector/pgvector:0.8.5-pg17
     restart: unless-stopped
     environment:
-      - TG_TOKEN
-      - LOGGING_LEVEL
-      - POSTGRES_HOST
-      - POSTGRES_DB
-      - POSTGRES_USER
-      - POSTGRES_PASSWORD
-      - MISTRAL_API_KEY
-      - OLLAMA_HOST
-    mem_limit: 200m
+      POSTGRES_DB: ${POSTGRES_DB:-mediaarchivist}
+      POSTGRES_USER: ${POSTGRES_USER:-mediaarchivist}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-    - type: tmpfs
-      target: /ramdisk
-      tmpfs:
-        size: 200m
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:0.30.8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  ollama-init:
+    image: ollama/ollama:0.30.8
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['ollama pull "$${EMBEDDING_MODEL}"']
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  migrate:
+    build: .
+    image: mediaarchivistbot:local
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      OLLAMA_HOST: http://ollama:11434
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mediaarchivistbot:
+    build: .
+    image: mediaarchivistbot:local
+    container_name: mediaarchivistbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      OLLAMA_HOST: http://ollama:11434
+    mem_limit: 2g
+    volumes:
+      - whisper-cache:/root/.cache/huggingface
+    tmpfs:
+      - /tmp/mediaarchivist:size=256m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ollama-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  ollama-data:
+  whisper-cache:

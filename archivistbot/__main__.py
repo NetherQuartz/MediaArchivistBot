@@ -1,126 +1,25 @@
-import os
 import asyncio
 import logging
-import requests
-import tempfile
 
-from telebot.async_telebot import AsyncTeleBot
-from telebot import types, logger
-
-from sqlmodel import select
-from fast_depends import inject
-
-from .database import File, Chat, Message, User, MediaType, SessionType
-from .llm_api import describe_photo, describe_video, get_embedding
-
-logger.setLevel(logging.DEBUG if os.getenv("LOGGING_LEVEL") == "DEBUG" else logging.INFO)
-bot = AsyncTeleBot(token=os.getenv("TG_TOKEN"))
-
-welcome_text = """
-Hello!
-"""
-
-MAX_FILE_SIZE = 20_000_000
+from .bot import BotApplication
+from .config import get_settings
 
 
-@bot.message_handler(commands=["start"])
-async def start(message: types.Message) -> None:
-    await bot.send_message(message.chat.id, text=welcome_text, parse_mode="markdown")
-
-
-@bot.message_handler(chat_types=["group", "supergroup", "private"], content_types=["photo", "video", "animation", "document"])
-@inject
-async def index_media(message: types.Message, session: SessionType) -> None:
-    logger.info(f"Got media: {message.chat.type=} {message.chat.id=} {message.id=} {message.content_type=}")
-
-    chat = session.get(Chat, message.chat.id)
-    if not chat:
-        chat = session.add(Chat(chat_id=message.chat.id, type=message.chat.type))
-        session.commit()
-    msg = Message(chat_id=message.chat.id, sender_id=message.from_user.id, message_id=message.id)
-    session.add(msg)
-    session.commit()
-
-    files: dict[str, File] = {}
-
-    if message.photo:
-        max_photo = message.photo[0]
-        for photo in message.photo:
-            logger.info(f"{photo.file_size=} {photo.file_id=}")
-            if MAX_FILE_SIZE > photo.file_size > max_photo.file_size:
-                max_photo = photo
-
-        file = session.get(File, photo.file_id)
-        if file is None and photo.file_size < MAX_FILE_SIZE:
-            files[photo.file_id] = File(file_id=photo.file_id, media_type=MediaType.image, message_uuid=msg.message_uuid)
-
-    if ((video := message.video) or (video := message.animation)) and video.file_size < MAX_FILE_SIZE:
-        logger.info(f"{video.file_size=} {video.file_id=} {video.file_name=}")
-        file = session.get(File, video.file_id)
-        if file is None and video.file_size < MAX_FILE_SIZE:
-            files[video.file_id] = File(file_id=video.file_id, media_type=MediaType.video, message_uuid=msg.message_uuid)
-
-    if document := message.document:
-        logger.info(f"{document.file_size=} {document.file_id=} {document.file_name=} {document.mime_type=}")
-        file = session.get(File, document.file_id)
-        if file is None and document.file_size < MAX_FILE_SIZE:
-            if "video" in document.mime_type:
-                file = File(file_id=document.file_id, media_type=MediaType.video, message_uuid=msg.message_uuid)
-            elif "image" in document.mime_type:
-                file = File(file_id=document.file_id, media_type=MediaType.image, message_uuid=msg.message_uuid)
-            files[document.file_id] = file
-
-    if not files:
-        logger.info("Finished with no new media")
-        return
-
-    for _, file in files.items():
-        session.add(file)
-    session.commit()
-
-    descriptions = []
-    for _, file in files.items():
-        file_url = await bot.get_file_url(file.file_id)
-        file_data = requests.get(file_url).content
-        match file.media_type:
-            case MediaType.image:
-                file.description = describe_photo(file_data)
-            case MediaType.video:
-                with tempfile.NamedTemporaryFile("wb", dir="/ramdisk") as temp:
-                    temp.write(file_data)
-                    file.description = describe_video(temp.name)
-        descriptions.append(file.description)
-
-    for embedding in await get_embedding(descriptions):
-        file.embedding = embedding
-    session.commit()
-
-    await bot.set_message_reaction(message.chat.id, message.id, [types.ReactionTypeEmoji("✍️")])
-    logger.info(f"Finished media processing: added {len(files)} files")
-
-
-@bot.message_handler(chat_types=["private"])
-@inject
-async def search(message: types.Message, session: SessionType) -> None:
-    query_embedding = (await get_embedding([message.text]))[0]
-    results = session.exec(
-        select(Message).join(File)
-            .where(~File.embedding.is_(None))
-            .order_by(File.embedding.l2_distance(query_embedding))
-            .limit(3)
+def configure_logging() -> None:
+    level_name = get_settings().logging_level.upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    for msg in results.unique():
-        await bot.forward_message(message.chat.id, msg.chat_id, msg.message_id)
+    for noisy_logger in ("aiohttp", "httpcore", "httpx", "openai", "urllib3"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
-@bot.my_chat_member_handler()
-@inject
-async def chat_membership(upd: types.ChatMemberUpdated, session: SessionType) -> None:
-    chat = session.get(Chat, upd.chat.id)
-    if not chat:
-        chat = session.add(Chat(chat_id=upd.chat.id, type=upd.chat.type))
-    session.commit()
+async def main() -> None:
+    configure_logging()
+    await BotApplication().run()
 
 
 if __name__ == "__main__":
-    asyncio.run(bot.infinity_polling())
+    asyncio.run(main())

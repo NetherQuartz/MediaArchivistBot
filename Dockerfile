@@ -2,13 +2,21 @@ FROM python:3.12-slim
 
 WORKDIR /usr/app
 
-ENV TZ=Europe/Moscow
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/usr/app \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TZ=Europe/Moscow
 
-ADD requirements.txt .
+COPY requirements.txt .
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 
-ADD archivistbot archivistbot
+COPY alembic.ini .
+COPY migrations migrations
+COPY archivistbot archivistbot
+COPY tests tests
 
-ENTRYPOINT [ "python", "-m", "archivistbot" ]
+CMD ["python", "-m", "archivistbot"]
