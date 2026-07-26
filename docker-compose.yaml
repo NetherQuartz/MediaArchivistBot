@@ -46,7 +46,8 @@ services:
 
   migrate:
     build: .
-    image: mediaarchivistbot:local
+    image: ghcr.io/netherquartz/mediaarchivistbot:latest
+    pull_policy: ${BOT_PULL_POLICY:-always}
     restart: "no"
     env_file:
       - .env
@@ -61,7 +62,8 @@ services:
 
   mediaarchivistbot:
     build: .
-    image: mediaarchivistbot:local
+    image: ghcr.io/netherquartz/mediaarchivistbot:latest
+    pull_policy: ${BOT_PULL_POLICY:-always}
     container_name: mediaarchivistbot
     restart: unless-stopped
     env_file:

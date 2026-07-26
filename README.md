@@ -41,13 +41,41 @@ files are not persisted.
 4. Start the stack:
 
    ```bash
-   docker compose up --build
+   docker compose up -d
    ```
 
-Compose starts PostgreSQL and Ollama, downloads the embedding model, applies
-`alembic upgrade head`, and only then starts the bot. The first start downloads
-approximately 639 MB of embedding-model weights. The first processed video also
-downloads the local Whisper model.
+Compose pulls `ghcr.io/netherquartz/mediaarchivistbot:latest` from GitHub
+Container Registry, starts PostgreSQL and Ollama, downloads the embedding
+model, applies `alembic upgrade head`, and only then starts the bot. The first
+start downloads approximately 639 MB of embedding-model weights. The first
+processed video also downloads the local Whisper model.
+
+For local development against a freshly built image instead of GHCR:
+
+```bash
+BOT_PULL_POLICY=build docker compose up --build -d
+```
+
+If the GHCR package is private, authenticate once before pulling:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+## CI/CD
+
+Pushes to `main` rebuild the Docker image and run unit checks. Pushing a git
+tag publishes the image to GHCR with that tag and updates `latest`:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Published images:
+
+- `ghcr.io/netherquartz/mediaarchivistbot:<git-tag>`
+- `ghcr.io/netherquartz/mediaarchivistbot:latest`
 
 On macOS, Ollama runs on the CPU inside Docker because Docker Desktop does not
 expose Metal GPUs to containers. This is reproducible and sufficient for

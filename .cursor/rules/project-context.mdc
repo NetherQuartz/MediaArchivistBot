@@ -21,6 +21,8 @@ Core constraints:
 - Never commit or print `.env`, tokens, credentials, media samples, evaluation
   cases, backups, notebooks, or database files.
 - Check existing Compose services before starting or recreating them.
+- CI rebuilds/tests on `main` pushes and publishes to GHCR on git tags;
+  Compose defaults to `ghcr.io/netherquartz/mediaarchivistbot:latest`.
 - Proactively update this rule and `AGENTS.md` when persistent project context
   changes.
 - Run the verification checklist in `AGENTS.md` before claiming readiness.
