@@ -1,11 +1,16 @@
+import uuid
 from types import SimpleNamespace
 
+from telebot import types
+
 from archivistbot.bot import (
+    build_inline_query_results,
     extract_command_query,
     is_bot_authored_media,
     select_media_candidate,
 )
-from archivistbot.models import MediaType
+from archivistbot.models import Media, MediaType
+from archivistbot.search import SearchResult, media_result_title
 
 
 def message(**overrides):
@@ -131,3 +136,71 @@ def test_bot_authored_media_is_excluded() -> None:
     assert not is_bot_authored_media(other_bot_message, 99, index_bot_media=True)
     assert is_bot_authored_media(inline_result, 99, index_bot_media=True)
     assert not is_bot_authored_media(human_message, 99, index_bot_media=True)
+
+
+def test_media_result_title_prefers_summary() -> None:
+    media = Media(
+        file_id="f",
+        media_type=MediaType.IMAGE,
+        description={"summary": "Stilgar as it was written"},
+        search_text="Description: fallback",
+    )
+    assert media_result_title(media) == "Stilgar as it was written"
+
+
+def test_builds_cached_inline_results_by_media_type() -> None:
+    photo_id = uuid.uuid4()
+    video_id = uuid.uuid4()
+    animation_id = uuid.uuid4()
+    results = [
+        SearchResult(
+            media_uuid=photo_id,
+            chat_id=-1,
+            message_id=1,
+            file_id="photo-file",
+            file_unique_id="photo",
+            media_type=MediaType.IMAGE,
+            mime_type="image/jpeg",
+            title="photo title",
+            chat_title="Memes",
+            score=1.0,
+            cosine_distance=0.1,
+        ),
+        SearchResult(
+            media_uuid=video_id,
+            chat_id=-1,
+            message_id=2,
+            file_id="video-file",
+            file_unique_id="video",
+            media_type=MediaType.VIDEO,
+            mime_type="video/mp4",
+            title="video title",
+            chat_title="Memes",
+            score=0.9,
+            cosine_distance=0.2,
+        ),
+        SearchResult(
+            media_uuid=animation_id,
+            chat_id=-1,
+            message_id=3,
+            file_id="gif-file",
+            file_unique_id="gif",
+            media_type=MediaType.ANIMATION,
+            mime_type="video/mp4",
+            title="gif title",
+            chat_title=None,
+            score=0.8,
+            cosine_distance=0.3,
+        ),
+    ]
+
+    inline_results = build_inline_query_results(results)
+
+    assert [type(item) for item in inline_results] == [
+        types.InlineQueryResultCachedPhoto,
+        types.InlineQueryResultCachedVideo,
+        types.InlineQueryResultCachedMpeg4Gif,
+    ]
+    assert inline_results[0].id == photo_id.hex
+    assert inline_results[1].title == "video title"
+    assert inline_results[2].mpeg4_file_id == "gif-file"

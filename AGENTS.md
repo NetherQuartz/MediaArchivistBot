@@ -12,6 +12,9 @@ messages by semantic search. It does not persist media binaries.
 
 - Private plain-text, `/search`, and `/find` queries span only groups where live
   membership is confirmed.
+- Inline search (`@bot <query>`) uses the same membership-scoped archives.
+  Telegram does not expose the current chat id on inline queries, so inline
+  mode cannot be restricted to a single group.
 - `/search` and `/find` inside a group search only that group's archive.
 - The bot must be a group administrator for indexing and reliable membership
   checks.

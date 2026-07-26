@@ -41,6 +41,9 @@ Private search only covers groups you currently belong to.
 Inside a group, use /search or /find followed by a description. Group search
 only uses media indexed from that group.
 
+You can also search inline anywhere: type @bot_username and a description. Inline
+search covers groups where your membership is confirmed.
+
 Note: Telegram does not expose messages sent before the bot joined.
 """.strip()
 
@@ -49,10 +52,13 @@ HELP_TEXT = """
 2. New photos, GIFs, videos, and image documents will be indexed.
 3. Send a private query as plain text or: /find Stilgar as it was written
 4. In a group, use: /search cat in deep snow
+5. Or search inline: @bot_username cat in deep snow
 
 The bot does not persist media files. Deleted messages and protected content
 cannot be retrieved.
 """.strip()
+
+INLINE_MIN_QUERY_LENGTH = 2
 
 
 @dataclass(frozen=True)
@@ -110,6 +116,10 @@ class BotApplication:
             func=lambda message: bool(message.text)
             and not message.text.lstrip().startswith("/"),
         )
+        self.bot.register_inline_handler(
+            self.inline_search,
+            func=lambda _query: True,
+        )
         self.bot.register_my_chat_member_handler(self.chat_membership)
 
     async def run(self) -> None:
@@ -128,7 +138,9 @@ class BotApplication:
             await self.bot.close_session()
 
     async def start_command(self, message: types.Message) -> None:
-        await self.bot.send_message(message.chat.id, WELCOME_TEXT)
+        payload = extract_command_query(message.text).lower()
+        text = HELP_TEXT if payload == "help" else WELCOME_TEXT
+        await self.bot.send_message(message.chat.id, text)
 
     async def help_command(self, message: types.Message) -> None:
         await self.bot.send_message(message.chat.id, HELP_TEXT)
@@ -317,6 +329,77 @@ class BotApplication:
                 "I could not find a sufficiently similar result in this group.",
             )
 
+    async def inline_search(self, inline_query: types.InlineQuery) -> None:
+        query = " ".join((inline_query.query or "").split())
+        if len(query) < INLINE_MIN_QUERY_LENGTH:
+            await self.bot.answer_inline_query(
+                inline_query.id,
+                [],
+                cache_time=0,
+                is_personal=True,
+                switch_pm_text="Open private search help",
+                switch_pm_parameter="help",
+            )
+            return
+
+        with session_scope() as session:
+            known_chats = active_chat_ids(session)
+        if not known_chats:
+            await self.bot.answer_inline_query(
+                inline_query.id,
+                [],
+                cache_time=0,
+                is_personal=True,
+                switch_pm_text="Add me to a group first",
+                switch_pm_parameter="start",
+            )
+            return
+
+        allowed_chats = await get_allowed_chat_ids(
+            self.bot,
+            inline_query.from_user.id,
+            known_chats,
+            self.settings.membership_concurrency,
+            self.bot_user_id,
+        )
+        if not allowed_chats:
+            await self.bot.answer_inline_query(
+                inline_query.id,
+                [],
+                cache_time=0,
+                is_personal=True,
+                switch_pm_text="No shared groups available",
+                switch_pm_parameter="start",
+            )
+            return
+
+        with session_scope() as session:
+            results = await self.search_service.search(
+                session,
+                query,
+                allowed_chats,
+            )
+
+        inline_results = build_inline_query_results(
+            results[: self.settings.search_results]
+        )
+        try:
+            await self.bot.answer_inline_query(
+                inline_query.id,
+                inline_results,
+                cache_time=0,
+                is_personal=True,
+            )
+        except ApiTelegramException as error:
+            logger.warning("Inline answer failed: %s", error)
+            # Drop results Telegram rejects (stale file_id) and retry once.
+            await self.bot.answer_inline_query(
+                inline_query.id,
+                [],
+                cache_time=0,
+                is_personal=True,
+            )
+
     async def _send_search_results(
         self,
         destination_chat_id: int,
@@ -426,6 +509,52 @@ def extract_command_query(text: str | None) -> str:
         return ""
     parts = text.split(maxsplit=1)
     return parts[1].strip() if len(parts) == 2 else ""
+
+
+def build_inline_query_results(
+    results: Sequence[SearchResult],
+) -> list[types.InlineQueryResultCachedBase]:
+    inline_results: list[types.InlineQueryResultCachedBase] = []
+    for result in results:
+        result_id = result.media_uuid.hex
+        title = result.title or result.media_type.title()
+        description = result.chat_title or None
+        media_type = result.media_type
+
+        if media_type == MediaType.IMAGE:
+            inline_results.append(
+                types.InlineQueryResultCachedPhoto(
+                    id=result_id,
+                    photo_file_id=result.file_id,
+                    title=title,
+                    description=description,
+                )
+            )
+        elif media_type == MediaType.ANIMATION:
+            inline_results.append(
+                types.InlineQueryResultCachedMpeg4Gif(
+                    id=result_id,
+                    mpeg4_file_id=result.file_id,
+                    title=title,
+                    description=description,
+                )
+            )
+        elif media_type == MediaType.VIDEO:
+            inline_results.append(
+                types.InlineQueryResultCachedVideo(
+                    id=result_id,
+                    video_file_id=result.file_id,
+                    title=title,
+                    description=description,
+                )
+            )
+        else:
+            logger.debug(
+                "Skipping unsupported inline media_type=%s media=%s",
+                media_type,
+                result.media_uuid,
+            )
+    return inline_results
 
 
 def is_bot_authored_media(

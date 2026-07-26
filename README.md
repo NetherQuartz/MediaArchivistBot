@@ -93,11 +93,16 @@ The minimum available administrator privileges are sufficient. The bot only
 indexes `group` and `supergroup` chats where it is an administrator. A private
 message searches every group where current membership is confirmed; plain text,
 `/search <query>`, and `/find <query>` are equivalent there. Inside a group,
-`/search` and `/find` search only that group's archive. Both modes return up to
-five relevant results.
+`/search` and `/find` search only that group's archive. Inline search
+(`@bot_username <query>`) also uses membership-scoped archives and shows up to
+five results in Telegram's result picker without flooding the chat. Telegram
+inline queries do not include the current group id, so inline mode cannot be
+limited to only the group where you are typing. Both command and inline modes
+return up to five relevant results.
 
 ```text
 /search Stilgar as it was written
+@YourArchivistBot Stilgar as it was written
 ```
 
 By default, media authored by bots is excluded from indexing. Set

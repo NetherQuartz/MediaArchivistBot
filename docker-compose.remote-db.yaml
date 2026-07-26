@@ -1,0 +1,34 @@
+# Use with an SSH tunnel to a remote Postgres, for example:
+#   ssh -N -L 15432:127.0.0.1:15432 netherquartz@192.168.100.116
+#   BOT_PULL_POLICY=build docker compose -f docker-compose.yaml -f docker-compose.remote-db.yaml \
+#     up -d --build ollama migrate mediaarchivistbot
+#
+# Do not start the local `db` service while this override is active.
+
+services:
+  db:
+    profiles: ["local-db"]
+
+  migrate:
+    environment:
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: "15432"
+      OLLAMA_HOST: http://ollama:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: !override
+      ollama-init:
+        condition: service_completed_successfully
+
+  mediaarchivistbot:
+    environment:
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: "15432"
+      OLLAMA_HOST: http://ollama:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
+      ollama-init:
+        condition: service_completed_successfully

@@ -20,7 +20,12 @@ class SearchResult:
     media_uuid: uuid.UUID
     chat_id: int
     message_id: int
+    file_id: str
     file_unique_id: str | None
+    media_type: str
+    mime_type: str | None
+    title: str
+    chat_title: str | None
     score: float
     cosine_distance: float | None
 
@@ -134,11 +139,15 @@ class SearchService:
             return []
 
         rows = session.exec(
-            select(Media, Message)
+            select(Media, Message, Chat.title)
             .join(Message, Message.message_uuid == Media.message_uuid)
+            .join(Chat, Chat.chat_id == Message.chat_id)
             .where(Media.media_uuid.in_(list(scores)))
         ).all()
-        by_id = {media.media_uuid: (media, message) for media, message in rows}
+        by_id = {
+            media.media_uuid: (media, message, chat_title)
+            for media, message, chat_title in rows
+        }
 
         results: list[SearchResult] = []
         seen_files: set[str] = set()
@@ -150,7 +159,7 @@ class SearchService:
             pair = by_id.get(media_uuid)
             if pair is None:
                 continue
-            media, message = pair
+            media, message, chat_title = pair
             dedupe_key = media.file_unique_id or str(media.media_uuid)
             if dedupe_key in seen_files:
                 continue
@@ -160,12 +169,38 @@ class SearchService:
                     media_uuid=media.media_uuid,
                     chat_id=message.chat_id,
                     message_id=message.message_id,
+                    file_id=media.file_id,
                     file_unique_id=media.file_unique_id,
+                    media_type=media.media_type,
+                    mime_type=media.mime_type,
+                    title=media_result_title(media),
+                    chat_title=chat_title,
                     score=score,
                     cosine_distance=distances.get(media.media_uuid),
                 )
             )
         return results
+
+
+def media_result_title(media: Media, *, max_length: int = 64) -> str:
+    description = media.description if isinstance(media.description, dict) else None
+    if description:
+        summary = description.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()[:max_length]
+
+    if media.search_text:
+        for line in media.search_text.splitlines():
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            if ":" in cleaned:
+                _, _, rest = cleaned.partition(":")
+                cleaned = rest.strip() or cleaned
+            if cleaned:
+                return cleaned[:max_length]
+
+    return media.media_type.replace("_", " ").title()
 
 
 def active_chat_ids(session: Session) -> list[int]:
