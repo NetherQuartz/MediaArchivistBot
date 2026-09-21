@@ -32,6 +32,9 @@ messages by semantic search. It does not persist media binaries.
   OpenAI-compatible chat completions API.
 - Video: scene-aware frames plus local `faster-whisper`; animations skip audio.
 - Search: cosine vectors + PostgreSQL FTS/trigrams with RRF.
+- Telegram Desktop JSON exports can be imported from a read-only mount with
+  `python -m archivistbot.cli import-telegram-export`. Import is idempotent,
+  handles image/video documents by MIME type, and never reacts to history.
 - Search returns up to 5 results. Semantic candidates require cosine distance
   `<= 0.65`; lexical FTS matches or trigram similarity `>= 0.12` can also enter.
   There is currently no cutoff relative to the best result's score.
@@ -82,6 +85,10 @@ docker compose logs --since=5m mediaarchivistbot
 After changing prompts or embedding semantics, version the prompt/model metadata
 and explicitly reindex affected rows. Do not silently compare vectors generated
 by different embedding models.
+Export imports require an existing active administrator-scoped chat, skip
+non-positive legacy IDs and stickers, and copy one source file at a time to
+temporary local storage. Export-only synthetic file IDs are excluded from
+inline results but remain available through private and group forwarding.
 
 ## Required verification
 

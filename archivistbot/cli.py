@@ -1,11 +1,15 @@
 import argparse
 import asyncio
+import logging
+from pathlib import Path
 
 from sqlalchemy import or_, select
 
+from .config import get_settings
 from .database import session_scope
 from .llm_api import EmbeddingService
 from .models import Media, ProcessingStatus, utc_now
+from .telegram_export import import_telegram_export
 
 
 def requeue(*, all_media: bool) -> int:
@@ -83,12 +87,70 @@ def main() -> None:
     )
     reembed_parser.add_argument("--batch-size", type=int, default=32)
 
+    import_parser = subparsers.add_parser(
+        "import-telegram-export",
+        help="Index local media from a Telegram Desktop JSON export",
+    )
+    import_parser.add_argument("path", type=Path)
+    import_parser.add_argument(
+        "--chat-id",
+        type=int,
+        help="Bot API chat id; inferred for supergroup and channel exports",
+    )
+    import_parser.add_argument(
+        "--after-message-id",
+        type=int,
+        default=0,
+        help="Ignore messages at or below this id",
+    )
+    import_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum number of new media items to import",
+    )
+    import_parser.add_argument(
+        "--media-type",
+        action="append",
+        choices=["image", "video", "animation"],
+        help="Only import this media type; may be repeated",
+    )
+    import_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate the export and report counts without indexing",
+    )
+
     arguments = parser.parse_args()
+    logging.basicConfig(
+        level=getattr(logging, get_settings().logging_level.upper(), logging.INFO)
+    )
     if arguments.command == "requeue":
         count = requeue(all_media=arguments.all)
-    else:
+        print(f"Updated media rows: {count}")
+    elif arguments.command == "reembed":
         count = asyncio.run(reembed(arguments.batch_size))
-    print(f"Updated media rows: {count}")
+        print(f"Updated media rows: {count}")
+    else:
+        result = asyncio.run(
+            import_telegram_export(
+                arguments.path,
+                chat_id=arguments.chat_id,
+                after_message_id=arguments.after_message_id,
+                media_types=(
+                    set(arguments.media_type) if arguments.media_type else None
+                ),
+                limit=arguments.limit,
+                dry_run=arguments.dry_run,
+            )
+        )
+        print(
+            "Import result: "
+            f"candidates={result.candidates} "
+            f"existing={result.existing} "
+            f"imported={result.imported} "
+            f"reused={result.reused} "
+            f"failed={result.failed}"
+        )
 
 
 if __name__ == "__main__":

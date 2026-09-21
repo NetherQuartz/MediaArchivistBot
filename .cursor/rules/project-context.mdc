@@ -21,6 +21,9 @@ Core constraints:
   are skipped unless `INDEX_BOT_MEDIA=true`.
 - Vision uses AnyModel's OpenAI-compatible API with `VISION_API_KEY`; tolerate
   JSON responses wrapped in Markdown code fences.
+- Telegram Desktop JSON imports must require an existing active chat, skip
+  legacy non-positive IDs and stickers, and never react to historical media.
+  Read export files from a read-only mount via temporary local copies.
 - Alembic exclusively owns the database schema; commit every revision.
 - Never commit or print `.env`, tokens, credentials, media samples, evaluation
   cases, backups, notebooks, or database files.

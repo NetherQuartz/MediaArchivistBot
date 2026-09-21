@@ -11,6 +11,7 @@ from telebot.async_telebot import AsyncTeleBot
 from .config import Settings, get_settings
 from .database import session_scope
 from .models import (
+    EXPORT_FILE_ID_PREFIX,
     Chat,
     ChatType,
     Media,
@@ -516,6 +517,12 @@ def build_inline_query_results(
 ) -> list[types.InlineQueryResultCachedBase]:
     inline_results: list[types.InlineQueryResultCachedBase] = []
     for result in results:
+        if result.file_id.startswith(EXPORT_FILE_ID_PREFIX):
+            logger.debug(
+                "Skipping export-only inline media=%s",
+                result.media_uuid,
+            )
+            continue
         result_id = result.media_uuid.hex
         title = result.title or result.media_type.title()
         description = result.chat_title or None

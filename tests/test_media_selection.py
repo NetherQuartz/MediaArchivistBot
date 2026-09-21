@@ -9,7 +9,7 @@ from archivistbot.bot import (
     is_bot_authored_media,
     select_media_candidate,
 )
-from archivistbot.models import Media, MediaType
+from archivistbot.models import EXPORT_FILE_ID_PREFIX, Media, MediaType
 from archivistbot.search import SearchResult, media_result_title
 
 
@@ -204,3 +204,21 @@ def test_builds_cached_inline_results_by_media_type() -> None:
     assert inline_results[0].id == photo_id.hex
     assert inline_results[1].title == "video title"
     assert inline_results[2].mpeg4_file_id == "gif-file"
+
+
+def test_inline_results_skip_media_without_telegram_file_id() -> None:
+    result = SearchResult(
+        media_uuid=uuid.uuid4(),
+        chat_id=-1,
+        message_id=1,
+        file_id=f"{EXPORT_FILE_ID_PREFIX}sha256:abc",
+        file_unique_id="sha256:abc",
+        media_type=MediaType.IMAGE,
+        mime_type="image/jpeg",
+        title="Imported photo",
+        chat_title="Memes",
+        score=1.0,
+        cosine_distance=0.1,
+    )
+
+    assert build_inline_query_results([result]) == []

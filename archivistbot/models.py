@@ -22,6 +22,7 @@ from sqlmodel import Field, SQLModel
 
 SCHEMA = "mediaarchivist"
 EMBEDDING_DIMENSIONS = 1024
+EXPORT_FILE_ID_PREFIX = "telegram-export:"
 
 
 def utc_now() -> datetime:

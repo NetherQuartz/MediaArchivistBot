@@ -173,6 +173,35 @@ This command also recreates vectors produced by another embedding model. A
 change in vector dimensionality requires a dedicated Alembic migration for the
 `vector(1024)` column.
 
+Import media from a Telegram Desktop machine-readable JSON export:
+
+```bash
+docker compose run --rm --no-deps \
+  -v "/mnt/quartz-share/Exported Chat:/import:ro" \
+  mediaarchivistbot \
+  python -m archivistbot.cli import-telegram-export /import --dry-run
+
+docker compose run --rm --no-deps \
+  -v "/mnt/quartz-share/Exported Chat:/import:ro" \
+  mediaarchivistbot \
+  python -m archivistbot.cli import-telegram-export /import
+```
+
+The target group must already be active with the bot as an administrator.
+Supergroup and channel IDs are inferred from `result.json`; use `--chat-id` for
+other export types. The importer is idempotent, skips non-positive legacy
+message IDs and stickers, recognizes image and video documents by MIME type,
+and never reacts to historical messages. Each SMB file is copied to local
+temporary storage for processing and deleted immediately afterward. Use
+`--limit` for a test batch, `--after-message-id` to restrict the scan, or one
+or more `--media-type image|video|animation` options to control expensive
+backfills.
+
+Imported rows without a reusable Bot API `file_id` can be returned by normal
+private and group searches because the original message is forwarded. They are
+excluded from inline results until a Telegram cache chat is configured.
+Never commit Telegram exports or their media files.
+
 To measure retrieval quality, create an ignored local file such as
 `eval/queries.json`:
 
