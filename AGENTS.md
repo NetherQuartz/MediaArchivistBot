@@ -67,6 +67,8 @@ Compose defaults to `ghcr.io/netherquartz/mediaarchivistbot:latest` with
 `BOT_PULL_POLICY=always`. CI rebuilds and tests on every `main` push, and
 publishes that image to GHCR when a git tag is pushed. For local builds use
 `BOT_PULL_POLICY=build docker compose up --build -d`.
+Every published release tag must also have a matching GitHub Release with
+concise release notes.
 
 Common commands:
 

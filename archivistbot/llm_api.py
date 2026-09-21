@@ -11,7 +11,7 @@ from openai import (
     AsyncOpenAI,
     RateLimitError,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .config import Settings, get_settings
 
@@ -68,6 +68,7 @@ class ImageInput:
 
 def _parse_media_description(output: str) -> MediaDescription:
     cleaned = output.strip()
+    candidates = [cleaned]
     fence_start = cleaned.find("```")
     if fence_start != -1:
         content_start = cleaned.find("\n", fence_start + 3)
@@ -75,8 +76,22 @@ def _parse_media_description(output: str) -> MediaDescription:
         if content_start != -1 and fence_end != -1:
             fence_label = cleaned[fence_start + 3 : content_start].strip().lower()
             if fence_label in {"", "json"}:
-                cleaned = cleaned[content_start + 1 : fence_end].strip()
-    return MediaDescription.model_validate_json(cleaned)
+                candidates.insert(0, cleaned[content_start + 1 : fence_end].strip())
+
+    object_start = cleaned.find("{")
+    object_end = cleaned.rfind("}")
+    if object_start != -1 and object_end > object_start:
+        candidates.append(cleaned[object_start : object_end + 1])
+
+    last_error: ValidationError | None = None
+    for candidate in dict.fromkeys(candidates):
+        try:
+            return MediaDescription.model_validate_json(candidate)
+        except ValidationError as error:
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    raise ValueError("Vision provider returned no JSON object")
 
 
 class VisionService:
@@ -155,6 +170,10 @@ class VisionService:
                 if not output:
                     raise ValueError("Vision provider returned an empty response")
                 return _parse_media_description(output)
+            except ValidationError:
+                if attempt + 1 >= self.settings.vision_max_retries:
+                    raise
+                await asyncio.sleep(2**attempt)
             except (APIConnectionError, APITimeoutError, RateLimitError):
                 if attempt + 1 >= self.settings.vision_max_retries:
                     raise

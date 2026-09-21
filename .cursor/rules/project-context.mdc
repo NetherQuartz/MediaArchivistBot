@@ -27,6 +27,7 @@ Core constraints:
 - Check existing Compose services before starting or recreating them.
 - CI rebuilds/tests on `main` pushes and publishes to GHCR on git tags;
   Compose defaults to `ghcr.io/netherquartz/mediaarchivistbot:latest`.
+- Every release tag must have a matching GitHub Release with release notes.
 - Proactively update this rule and `AGENTS.md` when persistent project context
   changes.
 - Run the verification checklist in `AGENTS.md` before claiming readiness.
