@@ -1,0 +1,56 @@
+name: mediaarchivist-import
+
+services:
+  ollama:
+    image: ollama/ollama:0.30.8
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  ollama-init:
+    image: ollama/ollama:0.30.8
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['ollama pull "$${EMBEDDING_MODEL}"']
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  importer:
+    image: ghcr.io/netherquartz/mediaarchivistbot:${IMPORTER_TAG:-latest}
+    pull_policy: always
+    env_file:
+      - ${IMPORT_ENV_FILE:-.env.import}
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - type: bind
+        source: ${TELEGRAM_EXPORT_PATH:?TELEGRAM_EXPORT_PATH must be set}
+        target: /import
+        read_only: true
+      - whisper-cache:/root/.cache/huggingface
+    tmpfs:
+      - /tmp/mediaarchivist:size=1g
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    command:
+      - python
+      - -m
+      - archivistbot.cli
+      - import-telegram-export
+      - /import
+      - --dry-run
+
+volumes:
+  ollama-data:
+  whisper-cache:

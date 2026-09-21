@@ -89,6 +89,10 @@ Export imports require an existing active administrator-scoped chat, skip
 non-positive legacy IDs and stickers, and copy one source file at a time to
 temporary local storage. Export-only synthetic file IDs are excluded from
 inline results but remain available through private and group forwarding.
+`docker-compose.import.yaml` runs only Ollama and the importer on a media host
+while writing to an existing remote database. Remote PostgreSQL access must
+bind to a specific trusted LAN address via `POSTGRES_BIND_ADDRESS`; never commit
+`.env.import`, credentials, host addresses, or local export paths.
 
 ## Required verification
 

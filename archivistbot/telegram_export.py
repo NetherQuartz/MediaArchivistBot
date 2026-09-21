@@ -234,7 +234,8 @@ async def import_telegram_export(
     if dry_run or not pending:
         return result
 
-    runtime_settings.validate_runtime()
+    if not runtime_settings.vision_api_key.get_secret_value():
+        raise RuntimeError("Missing required environment variable: VISION_API_KEY")
     runtime_settings.temp_dir.mkdir(parents=True, exist_ok=True)
     processor = MediaProcessor(runtime_settings)
     vision = VisionService(runtime_settings)

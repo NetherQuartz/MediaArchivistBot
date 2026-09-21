@@ -56,6 +56,24 @@ For local development against a freshly built image instead of GHCR:
 BOT_PULL_POLICY=build docker compose up --build -d
 ```
 
+PostgreSQL binds to loopback by default. To allow an importer on another
+trusted LAN machine, set the database host's LAN address and a non-default host
+port in `.env`:
+
+```dotenv
+POSTGRES_BIND_ADDRESS=<database-host-LAN-address>
+POSTGRES_PORT=15432
+```
+
+Recreate only the database container:
+
+```bash
+docker compose up -d --force-recreate db
+```
+
+Allow that port only from the trusted LAN in the host firewall. Never forward
+the PostgreSQL port from the router or expose it to the public internet.
+
 If the GHCR package is private, authenticate once before pulling:
 
 ```bash
@@ -201,6 +219,30 @@ Imported rows without a reusable Bot API `file_id` can be returned by normal
 private and group searches because the original message is forwarded. They are
 excluded from inline results until a Telegram cache chat is configured.
 Never commit Telegram exports or their media files.
+
+For a large backfill on a Windows machine that stores the export, use the
+dedicated importer stack. It starts only Ollama and the importer locally while
+writing indexed rows to the existing remote PostgreSQL database:
+
+```powershell
+Copy-Item .env.import.template .env.import
+notepad .env.import
+
+# Dry run: validates access and reports candidate counts.
+docker compose --env-file .env.import `
+  -f docker-compose.import.yaml run --rm importer
+
+# Example controlled batch.
+docker compose --env-file .env.import `
+  -f docker-compose.import.yaml run --rm importer `
+  python -m archivistbot.cli import-telegram-export /import `
+  --media-type image --limit 20
+```
+
+Set the local export path, remote database host and credentials, and
+`VISION_API_KEY` in `.env.import`. The file is ignored by Git, and the importer
+does not require `TG_TOKEN`. Do not run simultaneous importers against the same
+export.
 
 To measure retrieval quality, create an ignored local file such as
 `eval/queries.json`:
