@@ -75,6 +75,7 @@ def test_prompt_requires_bilingual_search_aliases() -> None:
         lambda payload: payload,
         lambda payload: f"```json\n{payload}\n```",
         lambda payload: f"```\n{payload}\n```",
+        lambda payload: f"Here is the requested description:\n```json\n{payload}\n```",
     ],
 )
 def test_media_description_accepts_plain_or_fenced_json(wrapper) -> None:

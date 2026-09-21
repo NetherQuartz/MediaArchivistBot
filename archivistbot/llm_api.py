@@ -68,12 +68,14 @@ class ImageInput:
 
 def _parse_media_description(output: str) -> MediaDescription:
     cleaned = output.strip()
-    if cleaned.startswith("```") and cleaned.endswith("```"):
-        first_newline = cleaned.find("\n")
-        if first_newline != -1:
-            fence_label = cleaned[3:first_newline].strip().lower()
+    fence_start = cleaned.find("```")
+    if fence_start != -1:
+        content_start = cleaned.find("\n", fence_start + 3)
+        fence_end = cleaned.find("```", content_start + 1)
+        if content_start != -1 and fence_end != -1:
+            fence_label = cleaned[fence_start + 3 : content_start].strip().lower()
             if fence_label in {"", "json"}:
-                cleaned = cleaned[first_newline + 1 : -3].strip()
+                cleaned = cleaned[content_start + 1 : fence_end].strip()
     return MediaDescription.model_validate_json(cleaned)
 
 
