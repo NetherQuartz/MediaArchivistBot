@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,12 +24,9 @@ class Settings(BaseSettings):
     postgres_user: str = "mediaarchivist"
     postgres_password: SecretStr = SecretStr("")
 
-    vision_api_key: SecretStr = Field(
-        default=SecretStr(""),
-        validation_alias=AliasChoices("VISION_API_KEY", "OPENROUTER_API_KEY"),
-    )
-    vision_base_url: str = "https://openrouter.ai/api/v1"
-    vision_model: str = "google/gemini-3-flash-preview"
+    vision_api_key: SecretStr = SecretStr("")
+    vision_base_url: str = "https://anymodel.org/v1"
+    vision_model: str = "ag/gemini-3.7-flash-medium"
     vision_timeout_seconds: float = 120
     vision_max_retries: int = 3
 

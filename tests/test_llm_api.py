@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ from archivistbot.llm_api import (
     SYSTEM_PROMPT,
     EmbeddingService,
     MediaDescription,
+    _parse_media_description,
     build_search_text,
 )
 
@@ -65,3 +67,19 @@ def test_prompt_requires_bilingual_search_aliases() -> None:
     normalized_prompt = " ".join(SYSTEM_PROMPT.split())
     assert "both English and Russian" in normalized_prompt
     assert "visible_text verbatim" in normalized_prompt
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        lambda payload: payload,
+        lambda payload: f"```json\n{payload}\n```",
+        lambda payload: f"```\n{payload}\n```",
+    ],
+)
+def test_media_description_accepts_plain_or_fenced_json(wrapper) -> None:
+    payload = json.dumps({"summary": "A red square"})
+
+    description = _parse_media_description(wrapper(payload))
+
+    assert description.summary == "A red square"

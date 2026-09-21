@@ -66,6 +66,17 @@ class ImageInput:
     mime_type: str = "image/jpeg"
 
 
+def _parse_media_description(output: str) -> MediaDescription:
+    cleaned = output.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        first_newline = cleaned.find("\n")
+        if first_newline != -1:
+            fence_label = cleaned[3:first_newline].strip().lower()
+            if fence_label in {"", "json"}:
+                cleaned = cleaned[first_newline + 1 : -3].strip()
+    return MediaDescription.model_validate_json(cleaned)
+
+
 class VisionService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -137,12 +148,11 @@ class VisionService:
                     ],
                     response_format=response_format,
                     temperature=0.1,
-                    extra_body={"provider": {"require_parameters": True}},
                 )
                 output = response.choices[0].message.content
                 if not output:
                     raise ValueError("Vision provider returned an empty response")
-                return MediaDescription.model_validate_json(output)
+                return _parse_media_description(output)
             except (APIConnectionError, APITimeoutError, RateLimitError):
                 if attempt + 1 >= self.settings.vision_max_retries:
                     raise

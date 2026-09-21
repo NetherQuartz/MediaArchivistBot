@@ -10,7 +10,7 @@ files are not persisted.
 ## How it works
 
 - PostgreSQL + pgvector store messages, descriptions, transcripts, and vectors.
-- An OpenRouter-compatible vision model extracts OCR, characters, actions, and
+- An OpenAI-compatible vision model extracts OCR, characters, actions, and
   meme context as structured JSON, including English and Russian search aliases.
 - Ollama runs `qwen3-embedding:0.6b` in a separate container for local,
   multilingual embeddings.
@@ -34,7 +34,7 @@ files are not persisted.
 
    ```dotenv
    TG_TOKEN=...
-   OPENROUTER_API_KEY=...
+   VISION_API_KEY=...
    POSTGRES_PASSWORD=choose-a-random-password
    ```
 
@@ -112,32 +112,29 @@ loops.
 
 ## Vision model and cost
 
-The default is an inexpensive OpenRouter model that performs well on character
-recognition and meme context:
+The default is an AnyModel-hosted Gemini Flash model that performs well on
+character recognition and meme context:
 
 ```dotenv
-VISION_BASE_URL=https://openrouter.ai/api/v1
-VISION_MODEL=google/gemini-3-flash-preview
+VISION_API_KEY=...
+VISION_BASE_URL=https://anymodel.org/v1
+VISION_MODEL=ag/gemini-3.7-flash-medium
 ```
 
 Images and selected video frames are sent to the vision provider. Audio is
 transcribed locally, but the resulting transcript is included in the vision
 request.
 
-At the time of configuration, Gemini 3 Flash Preview costs $0.50 per 1M input
-tokens and $3.00 per 1M output tokens, so a short description usually costs a
-fraction of a cent. Configure a spending limit for the OpenRouter key. For a
-fully free mode, use `google/gemma-4-26b-a4b-it:free`; it performed worse on
-character and meme-context recognition in the sample evaluation. Free
-endpoints are also limited to 20 requests per minute and 50 requests per day
-for accounts without purchased credits.
+Vision pricing and model availability are controlled by the configured
+provider. Configure an account spending limit and verify that the selected
+model accepts image inputs and JSON-schema structured output.
 
 Any vision endpoint that supports OpenAI-compatible `chat/completions` and
 structured outputs can be selected without code changes:
 
 ```dotenv
 VISION_API_KEY=...
-VISION_BASE_URL=https://openrouter.ai/api/v1
+VISION_BASE_URL=https://anymodel.org/v1
 VISION_MODEL=provider/model
 ```
 

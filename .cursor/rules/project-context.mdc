@@ -19,6 +19,8 @@ Core constraints:
   queries do not provide the current chat id.
 - Never index media authored by this bot or sent through this bot. Other bots
   are skipped unless `INDEX_BOT_MEDIA=true`.
+- Vision uses AnyModel's OpenAI-compatible API with `VISION_API_KEY`; tolerate
+  JSON responses wrapped in Markdown code fences.
 - Alembic exclusively owns the database schema; commit every revision.
 - Never commit or print `.env`, tokens, credentials, media samples, evaluation
   cases, backups, notebooks, or database files.

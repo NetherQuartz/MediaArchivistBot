@@ -28,7 +28,8 @@ messages by semantic search. It does not persist media binaries.
 - `mediaarchivistbot`: Python 3.12 async Telegram bot and indexing worker.
 - `db`: PostgreSQL 17 with pgvector; all schema changes go through Alembic.
 - `ollama`: local `qwen3-embedding:0.6b`, producing 1024-dimensional vectors.
-- Vision: OpenRouter-compatible `google/gemini-3-flash-preview`.
+- Vision: AnyModel-hosted `ag/gemini-3.7-flash-medium` through the
+  OpenAI-compatible chat completions API.
 - Video: scene-aware frames plus local `faster-whisper`; animations skip audio.
 - Search: cosine vectors + PostgreSQL FTS/trigrams with RRF.
 - Search returns up to 5 results. Semantic candidates require cosine distance
